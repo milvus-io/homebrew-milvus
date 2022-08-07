@@ -6,6 +6,7 @@ cask "attu" do
   desc "Insight for Milvus"
   homepage "https://github.com/zilliztech/attu"
 
+  auto_updates true
   depends_on macos: ">= :high_sierra"
 
   app "attu.app"
