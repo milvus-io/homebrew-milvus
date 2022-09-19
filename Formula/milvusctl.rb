@@ -1,8 +1,8 @@
 class Milvusctl < Formula
-  desc "Milvus k8s controller"
+  desc "A command line tool for managing Milvus"
   homepage "https://github.com/milvus-io/milvusctl"
-  url "https://github.com/milvus-io/milvusctl/releases/download/v0.1.0/milvusctl-macos"
-  sha256 "3aeccb2324b2e9a6fd35f46944a4447b8403b2131e8fece44e70d32ba933fbdc"
+  url "https://github.com/milvus-io/milvusctl/releases/download/v0.1.1/milvusctl-macos"
+  sha256 "a0e8f9b1dec4a542b5432917884294f8b682c13d4b4f45cecacec14e06fc9974"
 
   def install 
     bin.install "milvusctl-macos" => "milvusctl"
