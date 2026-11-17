@@ -138,8 +138,13 @@ class Milvus < Formula
 
     system "rustup", "toolchain", "install", "1.92", "--profile", "minimal"
     system "rustup", "default", "1.92"
-    system "make", "milvus", "MILVUS_VERSION=#{version}",
-           "BUILD_TAGS=v#{version}", "GIT_COMMIT=63100f8f5b4b675a12fe78fc9673b005ee318731"
+    # Conan launches make through subprocesses that do not inherit jobserver
+    # pipes. Keep orchestration serial; jobs and CONAN_CPU_COUNT still parallelize
+    # the actual CMake and Conan builds independently.
+    ENV.deparallelize do
+      system "make", "milvus", "MILVUS_VERSION=#{version}",
+             "BUILD_TAGS=v#{version}", "GIT_COMMIT=63100f8f5b4b675a12fe78fc9673b005ee318731"
+    end
 
     (libexec/"bin").install "bin/milvus"
     # Both directories are needed: Conan imports dependencies to cmake_build,
