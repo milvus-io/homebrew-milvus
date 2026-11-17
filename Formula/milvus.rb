@@ -126,6 +126,7 @@ class Milvus < Formula
     # while CMake installs Milvus's own libraries into internal/core/output.
     runtime_libraries = Dir["cmake_build/lib/*.dylib", "internal/core/output/lib/*.dylib"]
     odie "The build produced no native runtime libraries" if runtime_libraries.empty?
+    (libexec/"lib").mkpath
     runtime_libraries.each do |path|
       source = Pathname(path)
       destination = libexec/"lib"/source.basename
@@ -135,7 +136,8 @@ class Milvus < Formula
       end
 
       # Materialize Conan symlinks before its private build cache is removed.
-      (libexec/"lib").install source.realpath => source.basename
+      # Copy rather than move: multiple aliases may resolve to this same file.
+      cp source.realpath, destination
     end
     relocate_runtime_libraries
     pkgshare.install "configs"
