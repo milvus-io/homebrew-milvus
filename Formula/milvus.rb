@@ -9,14 +9,15 @@ class Milvus < Formula
 
   depends_on "cmake" => :build
   depends_on "go" => :build
+  depends_on "libyaml" => :build
   depends_on "ninja" => :build
   depends_on "pkgconf" => :build
   depends_on "python@3.12" => :build
   depends_on "rustup" => :build
-  depends_on :macos
   depends_on "libomp"
   depends_on "librdkafka"
   depends_on "llvm@19"
+  depends_on :macos
 
   # Conan's version is checked by the upstream build script. Keep it private
   # rather than upgrading the user's Python packages or global Conan cache.
@@ -104,7 +105,7 @@ class Milvus < Formula
     ENV["GIT_CONFIG_GLOBAL"] = buildpath/"gitconfig"
     ENV["jobs"] = ENV.make_jobs.to_s
     ENV["CONAN_CPU_COUNT"] = ENV.make_jobs.to_s
-    ENV.prepend_path "PATH", Formula["rustup"].opt_bin
+    ENV.prepend_path "PATH", formula_opt_bin("rustup")
 
     system "rustup", "toolchain", "install", "1.92", "--profile", "minimal"
     system "rustup", "default", "1.92"
@@ -120,7 +121,7 @@ class Milvus < Formula
       source = Pathname(path)
       destination = libexec/"lib"/source.basename
       if destination.exist?
-        odie "Conflicting runtime libraries: #{source.basename}" unless FileUtils.compare_file(source, destination)
+        odie "Conflicting runtime libraries: #{source.basename}" unless compare_file(source, destination)
         next
       end
 
@@ -135,7 +136,7 @@ class Milvus < Formula
       #!/bin/bash
       export MILVUSCONF="${MILVUSCONF:-#{etc}/milvus}"
       export DEPLOY_MODE="${DEPLOY_MODE:-STANDALONE}"
-      export DYLD_LIBRARY_PATH="#{opt_libexec}/lib:#{Formula["llvm@19"].opt_lib}/c++${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}"
+      export DYLD_LIBRARY_PATH="#{opt_libexec}/lib:#{formula_opt_lib("llvm@19")}/c++${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}"
       exec "#{opt_libexec}/bin/milvus" "$@"
     SH
     chmod 0755, bin/"milvus"
@@ -164,60 +165,52 @@ class Milvus < Formula
     end
   end
 
-  def post_install
-    (var/"lib/milvus").mkpath
-    (var/"log/milvus").mkpath
-    (etc/"milvus").mkpath
+  post_install_steps do
+    mkdir_p "lib/milvus", base: :var
+    mkdir_p "log/milvus", base: :var
+    mkdir_p "milvus", base: :etc
     # Preserve configuration edits during reinstall and upgrade.
-    %w[milvus.yaml user.yaml embedEtcd.yaml].each do |name|
-      next if (etc/"milvus"/name).exist?
-
-      if name == "milvus.yaml"
-        cp pkgshare/"configs/milvus.yaml", etc/"milvus"/name
-      elsif name == "user.yaml"
-        (etc/"milvus"/name).write <<~YAML
-          # Local standalone profile; review before exposing this instance.
-          etcd:
-            auth:
-              enabled: false
-            use:
-              embed: true
-            data:
-              dir: #{var}/lib/milvus/etcd
-            config:
-              path: #{etc}/milvus/embedEtcd.yaml
-          common:
-            storageType: local
-          localStorage:
-            path: #{var}/lib/milvus/data
-          mq:
-            type: woodpecker
-          woodpecker:
-            storage:
-              type: local
-          rocksmq:
-            path: #{var}/lib/milvus/rdb_data
-          proxy:
-            ip: 127.0.0.1
-          log:
-            file:
-              rootPath: #{var}/log/milvus
-          function:
-            analyzer:
-              local_resource_path: #{var}/lib/milvus/analyzer
-        YAML
-      else
-        (etc/"milvus"/name).write <<~YAML
-          listen-client-urls: http://127.0.0.1:2379
-          advertise-client-urls: http://127.0.0.1:2379
-          listen-peer-urls: http://127.0.0.1:2380
-          initial-advertise-peer-urls: http://127.0.0.1:2380
-          initial-cluster: default=http://127.0.0.1:2380
-          auto-compaction-mode: revision
-          auto-compaction-retention: '1000'
-        YAML
-      end
-    end
+    copy "{{pkgshare}}/configs/milvus.yaml", "milvus/milvus.yaml", target_base: :etc, overwrite: false
+    write_file "milvus/user.yaml", <<~YAML, base: :etc, overwrite: false
+      # Local standalone profile; review before exposing this instance.
+      etcd:
+        auth:
+          enabled: false
+        use:
+          embed: true
+        data:
+          dir: {{var}}/lib/milvus/etcd
+        config:
+          path: {{etc}}/milvus/embedEtcd.yaml
+      common:
+        storageType: local
+      localStorage:
+        path: {{var}}/lib/milvus/data
+      mq:
+        type: woodpecker
+      woodpecker:
+        storage:
+          type: local
+      rocksmq:
+        path: {{var}}/lib/milvus/rdb_data
+      proxy:
+        ip: 127.0.0.1
+      log:
+        file:
+          rootPath: {{var}}/log/milvus
+      function:
+        analyzer:
+          local_resource_path: {{var}}/lib/milvus/analyzer
+    YAML
+    write_file "milvus/embedEtcd.yaml", <<~YAML, base: :etc, overwrite: false
+      listen-client-urls: http://127.0.0.1:2379
+      advertise-client-urls: http://127.0.0.1:2379
+      listen-peer-urls: http://127.0.0.1:2380
+      initial-advertise-peer-urls: http://127.0.0.1:2380
+      initial-cluster: default=http://127.0.0.1:2380
+      auto-compaction-mode: revision
+      auto-compaction-retention: '1000'
+    YAML
   end
 
   service do
