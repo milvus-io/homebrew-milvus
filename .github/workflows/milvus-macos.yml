@@ -50,7 +50,25 @@ jobs:
           brew tap milvus-io/milvus
           cp Formula/milvus.rb "$(brew --repository milvus-io/milvus)/Formula/milvus.rb"
           brew trust --formula milvus-io/milvus/milvus
-          brew install --build-from-source --verbose milvus-io/milvus/milvus
+          # Keep the live view useful when verbose output exceeds GitHub's
+          # display limit. Retain the complete log as a diagnostic artifact.
+          brew install --build-from-source --verbose milvus-io/milvus/milvus > "$RUNNER_TEMP/milvus-build.log" 2>&1 &
+          build_pid=$!
+          trap 'kill "$build_pid" 2>/dev/null || true' EXIT
+          while kill -0 "$build_pid" 2>/dev/null; do
+            date -u
+            tail -n 12 "$RUNNER_TEMP/milvus-build.log"
+            sleep 60
+          done
+          if wait "$build_pid"; then
+            tail -n 40 "$RUNNER_TEMP/milvus-build.log"
+          else
+            tail -n 100 "$RUNNER_TEMP/milvus-build.log"
+            exit 1
+          fi
+          trap - EXIT
+      - name: Verify formula command and native linkage
+        run: |
           brew test milvus-io/milvus/milvus
           brew linkage --test milvus-io/milvus/milvus
       - name: Verify service and data survive a restart
@@ -64,6 +82,7 @@ jobs:
         with:
           name: milvus-macos-diagnostics
           path: |
+            ${{ runner.temp }}/milvus-build.log
             ~/Library/Logs/Homebrew/milvus
             /opt/homebrew/var/log/milvus
             /usr/local/var/log/milvus

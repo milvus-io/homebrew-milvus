@@ -96,6 +96,11 @@ class Milvus < Formula
     venv.pip_install resources
     ENV["CONAN_CMD"] = buildpath/"conan-venv/bin/conan"
     ENV["CONAN_HOME"] = buildpath/".conan2"
+    # The linker shim prepends these paths before OpenSSL's own -L. Do not
+    # select a globally linked libcrypto while Conan builds its pinned version.
+    library_paths = ENV["HOMEBREW_LIBRARY_PATHS"].to_s.split(File::PATH_SEPARATOR)
+    library_paths.reject! { |path| path == (HOMEBREW_PREFIX/"lib").to_s }
+    ENV["HOMEBREW_LIBRARY_PATHS"] = library_paths.join(File::PATH_SEPARATOR)
     # Homebrew provides libomp. milvus-common must not invoke brew again inside
     # superenv; keep all other recipes' system dependency checks enabled.
     (buildpath/".conan2").mkpath
