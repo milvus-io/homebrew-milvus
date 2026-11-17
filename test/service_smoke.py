@@ -102,11 +102,14 @@ def exercise(formula):
         client.drop_collection(collection_name=collection)
         print("PASS: install, launchd start/stop, insert/query/search, and restart persistence")
     finally:
-        if client is not None:
-            client.close()
-        if started:
-            brew("services", "stop", formula)
-            wait_for(lambda: not any(listening(port) for port in PORTS), "Milvus did not stop", timeout=90)
+        # Client cleanup must not prevent launchd cleanup if close() fails.
+        try:
+            if client is not None:
+                client.close()
+        finally:
+            if started:
+                brew("services", "stop", formula)
+                wait_for(lambda: not any(listening(port) for port in PORTS), "Milvus did not stop", timeout=90)
 
 
 if __name__ == "__main__":
