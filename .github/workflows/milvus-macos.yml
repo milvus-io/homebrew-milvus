@@ -32,6 +32,7 @@ jobs:
           candidate="$(brew --repository milvus-io/milvus)/Formula/milvus.rb"
           cp Formula/milvus.rb "$candidate"
           brew style --formula "$candidate"
+          brew trust --formula milvus-io/milvus/milvus
           brew info --json=v2 --formula milvus-io/milvus/milvus
           python3 -m py_compile test/service_smoke.py
 
@@ -48,6 +49,7 @@ jobs:
           uname -a
           brew tap milvus-io/milvus
           cp Formula/milvus.rb "$(brew --repository milvus-io/milvus)/Formula/milvus.rb"
+          brew trust --formula milvus-io/milvus/milvus
           brew install --build-from-source --verbose milvus-io/milvus/milvus
           brew test milvus-io/milvus/milvus
           brew linkage --test milvus-io/milvus/milvus

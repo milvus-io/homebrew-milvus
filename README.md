@@ -31,6 +31,8 @@ selection are proposals for [milvus#32445](https://github.com/milvus-io/milvus/i
 pending maintainer review and native CI validation.
 
 ```sh
+brew tap milvus-io/milvus
+brew trust --formula milvus-io/milvus/milvus
 brew install milvus-io/milvus/milvus
 brew services start milvus-io/milvus/milvus
 curl --fail http://127.0.0.1:9091/healthz
