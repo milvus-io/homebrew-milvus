@@ -110,10 +110,10 @@ class Milvus < Formula
     # dependencies here instead of asking the upstream script to rediscover them.
     inreplace "scripts/setenv.sh" do |s|
       s.gsub! "for llvm_version in 21 20 19 18 17 16 15 14 NOT_FOUND", "for llvm_version in 19 NOT_FOUND"
-      s.gsub! 'if brew ls --versions llvm@${llvm_version} > /dev/null 2>&1; then',
+      s.gsub! "if brew ls --versions llvm@${llvm_version} > /dev/null 2>&1; then",
               'if [[ "$llvm_version" == "19" ]]; then'
-      s.gsub! '$(brew --prefix llvm@${llvm_version})', formula_opt_prefix("llvm@19").to_s
-      s.gsub! '$(brew --prefix libomp)', formula_opt_prefix("libomp").to_s
+      s.gsub! "$(brew --prefix llvm@${llvm_version})", formula_opt_prefix("llvm@19").to_s
+      s.gsub! "$(brew --prefix libomp)", formula_opt_prefix("libomp").to_s
     end
 
     system "rustup", "toolchain", "install", "1.92", "--profile", "minimal"
