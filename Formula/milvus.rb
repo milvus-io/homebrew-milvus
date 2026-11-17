@@ -106,10 +106,15 @@ class Milvus < Formula
     ENV["jobs"] = ENV.make_jobs.to_s
     ENV["CONAN_CPU_COUNT"] = ENV.make_jobs.to_s
     ENV.prepend_path "PATH", formula_opt_bin("rustup")
-    # Upstream otherwise prefers any newer LLVM found on the host, even when
-    # it is not a dependency of this formula or the installed runtime wrapper.
-    inreplace "scripts/setenv.sh", "for llvm_version in 21 20 19 18 17 16 15 14 NOT_FOUND",
-                                  "for llvm_version in 19 NOT_FOUND"
+    # superenv does not expose the brew command to builds. Resolve declared
+    # dependencies here instead of asking the upstream script to rediscover them.
+    inreplace "scripts/setenv.sh" do |s|
+      s.gsub! "for llvm_version in 21 20 19 18 17 16 15 14 NOT_FOUND", "for llvm_version in 19 NOT_FOUND"
+      s.gsub! 'if brew ls --versions llvm@${llvm_version} > /dev/null 2>&1; then',
+              'if [[ "$llvm_version" == "19" ]]; then'
+      s.gsub! '$(brew --prefix llvm@${llvm_version})', formula_opt_prefix("llvm@19").to_s
+      s.gsub! '$(brew --prefix libomp)', formula_opt_prefix("libomp").to_s
+    end
 
     system "rustup", "toolchain", "install", "1.92", "--profile", "minimal"
     system "rustup", "default", "1.92"
