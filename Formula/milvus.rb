@@ -131,6 +131,9 @@ class Milvus < Formula
     inreplace "scripts/3rdparty_build.sh" do |s|
       s.gsub! "export CMAKE_C_COMPILER_LAUNCHER=ccache", "unset CMAKE_C_COMPILER_LAUNCHER"
       s.gsub! "export CMAKE_CXX_COMPILER_LAUNCHER=ccache", "unset CMAKE_CXX_COMPILER_LAUNCHER"
+      # Build-context tools (protoc) must match host Abseil's C++20 headers.
+      s.gsub! "-s compiler.libcxx=libc++ -s compiler.cppstd=20",
+              "-s compiler.libcxx=libc++ -s compiler.cppstd=20 -s:b compiler.cppstd=20"
     end
 
     system "rustup", "toolchain", "install", "1.92", "--profile", "minimal"
