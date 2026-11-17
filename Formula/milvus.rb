@@ -96,6 +96,12 @@ class Milvus < Formula
     venv.pip_install resources
     ENV["CONAN_CMD"] = buildpath/"conan-venv/bin/conan"
     ENV["CONAN_HOME"] = buildpath/".conan2"
+    # Homebrew provides libomp. milvus-common must not invoke brew again inside
+    # superenv; keep all other recipes' system dependency checks enabled.
+    (buildpath/".conan2").mkpath
+    (buildpath/".conan2/global.conf").write <<~EOS
+      milvus-common/*:tools.system.package_manager:mode=report
+    EOS
     ENV["RUSTUP_HOME"] = buildpath/".rustup"
     ENV["CARGO_HOME"] = buildpath/".cargo"
     ENV["GOPATH"] = buildpath/".go"
@@ -114,6 +120,12 @@ class Milvus < Formula
               'if [[ "$llvm_version" == "19" ]]; then'
       s.gsub! "$(brew --prefix llvm@${llvm_version})", formula_opt_prefix("llvm@19").to_s
       s.gsub! "$(brew --prefix libomp)", formula_opt_prefix("libomp").to_s
+    end
+    # The release unconditionally enables ccache, which is not part of the
+    # declared build environment. Use the compiler directly in this build.
+    inreplace "scripts/3rdparty_build.sh" do |s|
+      s.gsub! "export CMAKE_C_COMPILER_LAUNCHER=ccache", "unset CMAKE_C_COMPILER_LAUNCHER"
+      s.gsub! "export CMAKE_CXX_COMPILER_LAUNCHER=ccache", "unset CMAKE_CXX_COMPILER_LAUNCHER"
     end
 
     system "rustup", "toolchain", "install", "1.92", "--profile", "minimal"
