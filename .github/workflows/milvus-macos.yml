@@ -28,8 +28,11 @@ jobs:
           HOMEBREW_NO_AUTO_UPDATE: '1'
         run: |
           ruby -c Formula/milvus.rb
-          brew style --formula Formula/milvus.rb
-          brew info --json=v2 --formula Formula/milvus.rb
+          brew tap milvus-io/milvus
+          candidate="$(brew --repository milvus-io/milvus)/Formula/milvus.rb"
+          cp Formula/milvus.rb "$candidate"
+          brew style --formula "$candidate"
+          brew info --json=v2 --formula milvus-io/milvus/milvus
           python3 -m py_compile test/service_smoke.py
 
   native:
