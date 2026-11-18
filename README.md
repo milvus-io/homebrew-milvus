@@ -60,8 +60,14 @@ the installed formula and LLVM runtime; it does not use the source/build tree.
 
 ### Native verification
 
-The workflow checks Ruby syntax/style, builds the formula on a macOS runner,
-checks installed linkage, then starts/stops the actual `brew services` service.
+The workflow checks Ruby syntax/style and reproduces Go/cgo's rejection of a
+Rust archive with embedded LLVM bitcode. It verifies that removing only the
+bitcode sections preserves exported symbols and allows Go to call the Rust code.
+The formula applies that transformation after the C++ build and before Go builds.
+It keeps Go's native-object security checks enabled.
+
+The workflow then builds the formula on a macOS runner, checks installed linkage,
+and starts/stops the actual `brew services` service.
 Its SDK smoke test writes a unique collection, flushes it, stops the process,
 starts a new process and verifies both query and vector search after restart.
 It refuses to run over an existing local instance and stops the service it starts.

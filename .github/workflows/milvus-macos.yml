@@ -7,6 +7,7 @@ on:
     paths:
       - Formula/milvus.rb
       - test/service_smoke.py
+      - test/native_archive_smoke.sh
       - .github/workflows/milvus-macos.yml
   workflow_dispatch:
 
@@ -36,8 +37,25 @@ jobs:
           brew info --json=v2 --formula milvus-io/milvus/milvus
           python3 -m py_compile test/service_smoke.py
 
-  native:
+  interop:
     needs: formula
+    runs-on: macos-15
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify Rust static archives remain usable through Go/cgo
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: '1'
+        run: |
+          brew install go llvm@19 rustup pkgconf
+          export PATH="$(brew --prefix rustup)/bin:$(brew --prefix go)/bin:$PATH"
+          export RUSTUP_HOME="$RUNNER_TEMP/native-interop/rustup"
+          export CARGO_HOME="$RUNNER_TEMP/native-interop/cargo"
+          rustup toolchain install 1.92 --profile minimal
+          bash test/native_archive_smoke.sh "$(brew --prefix llvm@19)"
+
+  native:
+    needs: [formula, interop]
     runs-on: macos-15
     timeout-minutes: 360
     steps:

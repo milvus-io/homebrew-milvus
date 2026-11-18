@@ -141,9 +141,17 @@ class Milvus < Formula
     # Conan launches make through subprocesses that do not inherit jobserver
     # pipes. Keep orchestration serial; jobs and CONAN_CPU_COUNT still parallelize
     # the actual CMake and Conan builds independently.
+    build_args = ["MILVUS_VERSION=#{version}", "BUILD_TAGS=v#{version}",
+                  "GIT_COMMIT=63100f8f5b4b675a12fe78fc9673b005ee318731"]
     ENV.deparallelize do
-      system "make", "milvus", "MILVUS_VERSION=#{version}",
-             "BUILD_TAGS=v#{version}", "GIT_COMMIT=63100f8f5b4b675a12fe78fc9673b005ee318731"
+      system "make", "build-cpp", *build_args
+      # Rust's staticlib also bundles bitcode from its prebuilt standard library.
+      # Keep native code and symbols, but remove the embedded IR before Go/cgo
+      # validates this archive. Do not relax Go's native-object security checks.
+      system formula_opt_bin("llvm@19")/"llvm-objcopy",
+             "--remove-section=__LLVM,__bitcode", "--remove-section=__LLVM,__cmdline",
+             "internal/core/output/lib/libtantivy_binding.a"
+      system "make", "print-build-info", "build-go", *build_args
     end
 
     (libexec/"bin").install "bin/milvus"
