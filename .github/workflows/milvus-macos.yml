@@ -46,6 +46,9 @@ jobs:
       - name: Verify Rust static archives remain usable through Go/cgo
         env:
           HOMEBREW_NO_AUTO_UPDATE: '1'
+          # Match the toolchain that rejected the real Milvus archive. The
+          # runner's older Homebrew snapshot can still install Go 1.27.3.
+          GOTOOLCHAIN: go1.27.4
         run: |
           brew install go llvm@19 rustup pkgconf
           export PATH="$(brew --prefix rustup)/bin:$(brew --prefix go)/bin:$PATH"
