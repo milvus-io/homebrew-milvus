@@ -51,10 +51,12 @@ fi
 cat before.log
 grep -F 'disallowed LTO section __LLVM,__bitcode' before.log
 
-"$llvm_prefix/bin/llvm-nm" --defined-only --extern-only libsmoke.a > symbols-before.txt
+# Inspect native symbols; Rust 1.92 embeds LLVM 21 IR that LLVM 19's bitcode
+# reader cannot decode. The native Mach-O symbol table is sufficient here.
+"$llvm_prefix/bin/llvm-nm" --no-llvm-bc --defined-only --extern-only libsmoke.a > symbols-before.txt
 "$llvm_prefix/bin/llvm-objcopy" \
     --remove-section=__LLVM,__bitcode --remove-section=__LLVM,__cmdline libsmoke.a
-"$llvm_prefix/bin/llvm-nm" --defined-only --extern-only libsmoke.a > symbols-after.txt
+"$llvm_prefix/bin/llvm-nm" --no-llvm-bc --defined-only --extern-only libsmoke.a > symbols-after.txt
 diff -u symbols-before.txt symbols-after.txt
 go build -o after main.go
 ./after
