@@ -1,0 +1,116 @@
+name: Milvus macOS
+
+on:
+  push:
+    branches: [main, feat/macos-standalone-service]
+  pull_request:
+    paths:
+      - Formula/milvus.rb
+      - test/service_smoke.py
+      - test/native_archive_smoke.sh
+      - .github/workflows/milvus-macos.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: milvus-macos-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  formula:
+    runs-on: macos-15
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate formula syntax, style and metadata
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: '1'
+        run: |
+          ruby -c Formula/milvus.rb
+          brew tap milvus-io/milvus
+          candidate="$(brew --repository milvus-io/milvus)/Formula/milvus.rb"
+          cp Formula/milvus.rb "$candidate"
+          brew style --formula "$candidate"
+          brew trust --formula milvus-io/milvus/milvus
+          brew info --json=v2 --formula milvus-io/milvus/milvus
+          python3 -m py_compile test/service_smoke.py
+
+  interop:
+    needs: formula
+    runs-on: macos-15
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify Rust static archives remain usable through Go/cgo
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: '1'
+          # Match the toolchain that rejected the real Milvus archive. The
+          # runner's older Homebrew snapshot can still install Go 1.27.3.
+          GOTOOLCHAIN: go1.27.4
+        run: |
+          brew install go llvm@19 rustup pkgconf
+          export PATH="$(brew --prefix rustup)/bin:$(brew --prefix go)/bin:$PATH"
+          export RUSTUP_HOME="$RUNNER_TEMP/native-interop/rustup"
+          export CARGO_HOME="$RUNNER_TEMP/native-interop/cargo"
+          rustup toolchain install 1.92 --profile minimal
+          bash test/native_archive_smoke.sh "$(brew --prefix llvm@19)"
+
+  native:
+    needs: [formula, interop]
+    runs-on: macos-15
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install candidate formula from the official tap layout
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: '1'
+        run: |
+          uname -a
+          brew tap milvus-io/milvus
+          cp Formula/milvus.rb "$(brew --repository milvus-io/milvus)/Formula/milvus.rb"
+          brew trust --formula milvus-io/milvus/milvus
+          # Keep the live view useful when verbose output exceeds GitHub's
+          # display limit. Retain the complete log as a diagnostic artifact.
+          brew install --build-from-source --verbose milvus-io/milvus/milvus > "$RUNNER_TEMP/milvus-build.log" 2>&1 &
+          build_pid=$!
+          trap 'kill "$build_pid" 2>/dev/null || true' EXIT
+          while kill -0 "$build_pid" 2>/dev/null; do
+            date -u
+            tail -n 12 "$RUNNER_TEMP/milvus-build.log"
+            sleep 60
+          done
+          if wait "$build_pid"; then
+            tail -n 40 "$RUNNER_TEMP/milvus-build.log"
+          else
+            tail -n 100 "$RUNNER_TEMP/milvus-build.log"
+            exit 1
+          fi
+          trap - EXIT
+      - name: Verify formula command and native linkage
+        run: |
+          prefix="$(brew --prefix milvus-io/milvus/milvus)"
+          if ! brew test milvus-io/milvus/milvus; then
+            echo "::group::Mach-O load commands"
+            otool -L "$prefix/libexec/bin/milvus" || true
+            otool -L "$prefix/libexec/lib/libmilvus_core.dylib" || true
+            echo "::endgroup::"
+            exit 1
+          fi
+          brew linkage --test milvus-io/milvus/milvus
+      - name: Verify service and data survive a restart
+        run: |
+          python3 -m venv "$RUNNER_TEMP/milvus-smoke"
+          "$RUNNER_TEMP/milvus-smoke/bin/pip" install pymilvus==3.0.3
+          "$RUNNER_TEMP/milvus-smoke/bin/python" test/service_smoke.py
+      - name: Retain build and runtime diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: milvus-macos-diagnostics
+          path: |
+            ${{ runner.temp }}/milvus-build.log
+            ~/Library/Logs/Homebrew/milvus
+            /opt/homebrew/var/log/milvus
+            /usr/local/var/log/milvus
