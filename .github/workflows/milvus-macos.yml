@@ -90,7 +90,14 @@ jobs:
           trap - EXIT
       - name: Verify formula command and native linkage
         run: |
-          brew test milvus-io/milvus/milvus
+          prefix="$(brew --prefix milvus-io/milvus/milvus)"
+          if ! brew test milvus-io/milvus/milvus; then
+            echo "::group::Mach-O load commands"
+            otool -L "$prefix/libexec/bin/milvus" || true
+            otool -L "$prefix/libexec/lib/libmilvus_core.dylib" || true
+            echo "::endgroup::"
+            exit 1
+          fi
           brew linkage --test milvus-io/milvus/milvus
       - name: Verify service and data survive a restart
         run: |

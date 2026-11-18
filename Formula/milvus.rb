@@ -176,36 +176,112 @@ class Milvus < Formula
     pkgshare.install "configs"
 
     # Use the stable opt path so services survive a Cellar version change.
+    # Load commands are absolute. macOS does not apply DYLD_LIBRARY_PATH to
+    # @rpath dependencies, and launchd strips DYLD_* before a service starts.
     (bin/"milvus").write <<~SH
       #!/bin/bash
       export MILVUSCONF="${MILVUSCONF:-#{etc}/milvus}"
       export DEPLOY_MODE="${DEPLOY_MODE:-STANDALONE}"
-      export DYLD_LIBRARY_PATH="#{opt_libexec}/lib:#{formula_opt_lib("llvm@19")}/c++${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}"
       exec "#{opt_libexec}/bin/milvus" "$@"
     SH
     chmod 0755, bin/"milvus"
   end
 
-  def relocate_runtime_libraries
-    [libexec/"bin/milvus", *(libexec/"lib").children].each do |file|
-      if file.extname == ".dylib"
-        system "/usr/bin/install_name_tool", "-id", (opt_libexec/"lib"/file.basename).to_s, file
-      end
-      Utils.safe_popen_read("/usr/bin/otool", "-L", file).lines.drop(1).each do |line|
-        dependency = line.strip.split(" (").first
-        name = File.basename(dependency)
-        next unless (libexec/"lib"/name).exist?
+  def installed_macho_files
+    libraries = (libexec/"lib").children.select { |path| path.file? && path.extname == ".dylib" }
+    [libexec/"bin/milvus", *libraries]
+  end
 
-        system "/usr/bin/install_name_tool", "-change", dependency, (opt_libexec/"lib"/name).to_s, file
+  # scripts/setenv.sh links every native image with Homebrew LLVM's libc++
+  # (-L${llvm}/lib/c++ -lc++abi) and libomp. Those dylibs advertise @rpath
+  # install names. Rewriting only libraries copied into libexec, then deleting
+  # the build LC_RPATH entries, leaves libc++/libc++abi/libomp unresolved.
+  # dyld aborts (exit 134) before the CLI can print usage.
+  def absolute_runtime_libraries
+    names = %w[libc++.1.dylib libc++abi.1.dylib libunwind.1.dylib libomp.dylib libomp.1.dylib]
+    directories = [
+      formula_opt_lib("llvm@19")/"c++",
+      formula_opt_lib("llvm@19"),
+      formula_opt_lib("libomp"),
+    ]
+    names.filter_map do |name|
+      path = directories.lazy.map { |dir| dir/name }.find(&:exist?)
+      [name, path.to_s] if path
+    end.to_h
+  end
+
+  def macho_dependencies(file)
+    Utils.safe_popen_read("/usr/bin/otool", "-L", file).lines.drop(1).map do |line|
+      line.strip.split(" (").first
+    end
+  end
+
+  def macho_rpaths(file)
+    Utils.safe_popen_read("/usr/bin/otool", "-l", file)
+         .scan(/cmd LC_RPATH\s+cmdsize \d+\s+path (.+) \(offset \d+\)/)
+         .flatten
+         .uniq
+  end
+
+  def relocate_runtime_libraries
+    runtime = absolute_runtime_libraries
+    %w[libc++.1.dylib libc++abi.1.dylib].each do |name|
+      odie "Homebrew LLVM does not provide #{name}, required by the Milvus runtime" unless runtime[name]
+    end
+
+    installed_macho_files.each do |file|
+      install_id = (opt_libexec/"lib"/file.basename).to_s if file.extname == ".dylib"
+      system "/usr/bin/install_name_tool", "-id", install_id, file if install_id
+
+      macho_dependencies(file).uniq.each do |dependency|
+        next if dependency == install_id
+
+        name = File.basename(dependency)
+        replacement = if (libexec/"lib"/name).exist?
+          (opt_libexec/"lib"/name).to_s
+        else
+          runtime[name]
+        end
+        next if replacement.nil? || replacement == dependency
+
+        system "/usr/bin/install_name_tool", "-change", dependency, replacement, file
       end
-      load_commands = Utils.safe_popen_read("/usr/bin/otool", "-l", file)
-      load_commands.scan(/cmd LC_RPATH\s+cmdsize \d+\s+path (.+) \(offset \d+\)/).flatten.uniq.each do |rpath|
-        next unless rpath.start_with?(buildpath.to_s)
+
+      build_roots = [buildpath.to_s, buildpath.realpath.to_s].uniq
+      macho_rpaths(file).each do |rpath|
+        next unless build_roots.any? { |root| rpath.start_with?(root) }
 
         system "/usr/bin/install_name_tool", "-delete_rpath", rpath, file
       end
+      # The Go executable has header padding for extra rpaths. Dylibs may not,
+      # and their libc++/libomp dependencies are rewritten to absolute paths.
+      if install_id.nil?
+        [opt_libexec/"lib", formula_opt_lib("llvm@19")/"c++", formula_opt_lib("libomp")].each do |dir|
+          next unless dir.directory?
+          next if macho_rpaths(file).include?(dir.to_s)
+
+          system "/usr/bin/install_name_tool", "-add_rpath", dir.to_s, file
+        end
+      end
       # Modifying Mach-O load commands invalidates the build's ad-hoc signature.
       system "/usr/bin/codesign", "--force", "--sign", "-", file
+    end
+
+    installed_macho_files.each { |file| assert_runtime_linkage!(file) }
+  end
+
+  def assert_runtime_linkage!(file)
+    install_id = (opt_libexec/"lib"/file.basename).to_s if file.extname == ".dylib"
+    build_roots = [buildpath.to_s, buildpath.realpath.to_s].uniq
+    macho_dependencies(file).each do |dependency|
+      next if dependency == install_id
+      next if dependency.start_with?("/usr/lib/", "/System/")
+      next if dependency.start_with?("#{opt_libexec}/lib/") && (libexec/"lib"/File.basename(dependency)).exist?
+      next if dependency.start_with?("#{HOMEBREW_PREFIX}/opt/") && File.exist?(dependency)
+      next if !dependency.start_with?("@") && build_roots.none? { |root| dependency.start_with?(root) } &&
+               File.exist?(dependency)
+
+      odie "#{file.basename} depends on #{dependency}, which does not survive installation"
     end
   end
 
@@ -283,6 +359,9 @@ class Milvus < Formula
   end
 
   test do
-    assert_match "milvus run [server type]", shell_output("#{bin}/milvus 2>&1")
+    # No-args usage must come from the installed executable itself. Upstream
+    # exits 0 after writing this line; an abort here is a loader failure.
+    assert_match "milvus run [server type]",
+                 shell_output("env -u DYLD_LIBRARY_PATH -u DYLD_FALLBACK_LIBRARY_PATH #{bin}/milvus 2>&1")
   end
 end
